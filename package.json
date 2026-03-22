@@ -52,7 +52,8 @@
     "mac": {
       "target": [
         "dmg"
-      ]
+      ],
+      "icon": "assets/icon2.icns"
     },
     "win": {
       "target": [

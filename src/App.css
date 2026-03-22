@@ -28,6 +28,14 @@
   margin-bottom: 32px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .app-eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.4em;
@@ -59,6 +67,59 @@
   height: 6px;
   border-radius: 999px;
   background: var(--accent);
+}
+
+.header-tools {
+  display: inline-flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.toolbar-button.secondary {
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ink);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 20px rgba(17, 17, 17, 0.08);
+}
+
+.toolbar-button.secondary:hover {
+  box-shadow: 0 12px 24px rgba(17, 17, 17, 0.12);
+}
+
+.transfer-status {
+  display: inline-flex;
+  align-items: center;
+  max-width: 320px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 10px 20px rgba(17, 17, 17, 0.08);
+  line-height: 1.2;
+}
+
+.transfer-status.success {
+  color: #1d4f37;
+  background: rgba(226, 248, 235, 0.9);
+}
+
+.transfer-status.error {
+  color: #8c2418;
+  background: rgba(255, 230, 224, 0.92);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .layout {
@@ -245,6 +306,28 @@ button.danger {
   font-size: 14px;
 }
 
+.board-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.axis-toggle {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 20px rgba(17, 17, 17, 0.08);
+}
+
+.axis-toggle[aria-pressed='true'] {
+  background: rgba(255, 92, 77, 0.12);
+  border-color: rgba(211, 66, 46, 0.28);
+}
+
 .board {
   position: relative;
   width: 100%;
@@ -332,6 +415,13 @@ button.danger {
 .q4 {
   bottom: 18px;
   right: 20px;
+}
+
+@media (max-width: 900px) {
+  .board-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .note-card {
@@ -438,6 +528,24 @@ button.danger {
   font-size: 13px;
 }
 
+.list-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: rgba(19, 20, 15, 0.78);
+  line-height: 1.2;
+}
+
+.list-filter-toggle input {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 .list-body {
   display: flex;
   flex-direction: column;
@@ -520,6 +628,7 @@ button.danger {
   border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
   font-size: 12px;
+  cursor: pointer;
 }
 
 .completed-title {
@@ -638,6 +747,42 @@ button.danger {
   margin-top: 18px;
 }
 
+.completed-view-modal {
+  margin: 10vh auto 0;
+}
+
+.completed-view-body {
+  gap: 16px;
+}
+
+.readonly-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.readonly-label {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  opacity: 0.55;
+  text-transform: uppercase;
+}
+
+.readonly-value {
+  min-height: 44px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(245, 240, 232, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.readonly-value.multiline {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;
@@ -656,6 +801,10 @@ button.danger {
   .app-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
   }
 
   .board {

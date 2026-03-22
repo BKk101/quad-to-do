@@ -30,6 +30,21 @@ const openDb = () =>
     request.onerror = () => reject(request.error);
   });
 
+const runTransaction = async (
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore) => void
+): Promise<void> => {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, mode);
+    const store = tx.objectStore(STORE_NAME);
+    action(store);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+};
+
 const withStore = async <T,>(
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>
@@ -60,3 +75,12 @@ export const saveNote = async (note: Note): Promise<void> => {
 export const deleteNote = async (id: string): Promise<void> => {
   await withStore('readwrite', (store) => store.delete(id));
 };
+
+export async function replaceNotes(notes: Note[]): Promise<void> {
+  await runTransaction('readwrite', (store) => {
+    store.clear();
+    notes.forEach((note) => {
+      store.put(note);
+    });
+  });
+}

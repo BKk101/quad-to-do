@@ -1,4 +1,5 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const fs = require('fs/promises');
 const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development' || process.env.ELECTRON_START_URL;
@@ -11,6 +12,7 @@ const createWindow = () => {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -31,6 +33,35 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+ipcMain.handle('file:save-json', async (event, payload) => {
+  const browserWindow = BrowserWindow.fromWebContents(event.sender);
+  const defaultPath =
+    payload?.defaultPath || `quad-to-do-export-${new Date().toISOString().slice(0, 10)}.json`;
+  const result = await dialog.showSaveDialog(browserWindow ?? undefined, {
+    defaultPath,
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) {
+    return { canceled: true };
+  }
+  await fs.writeFile(result.filePath, payload?.content ?? '', 'utf8');
+  return { canceled: false, filePath: result.filePath };
+});
+
+ipcMain.handle('file:open-json', async (event) => {
+  const browserWindow = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(browserWindow ?? undefined, {
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true };
+  }
+  const filePath = result.filePaths[0];
+  const content = await fs.readFile(filePath, 'utf8');
+  return { canceled: false, filePath, content };
 });
 
 app.on('window-all-closed', () => {

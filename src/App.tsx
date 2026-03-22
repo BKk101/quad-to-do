@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
-import { deleteNote, loadNotes, saveNote } from './storage';
+import { deleteNote, loadNotes, replaceNotes, saveNote } from './storage';
 
 type Note = {
   id: string;
@@ -126,6 +126,93 @@ const defaultDraft: Draft = {
   color: colorPalette[0].key,
 };
 
+type AxisMode = 'standard' | 'swapped';
+type TransferStatus = { kind: 'success' | 'error'; text: string } | null;
+
+const normalizeImportedNote = (raw: unknown): Note | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  const title = typeof record.title === 'string' ? record.title.trim() : '';
+  if (!title) return null;
+  const createdAt =
+    typeof record.createdAt === 'number' && Number.isFinite(record.createdAt)
+      ? record.createdAt
+      : Date.now();
+  const updatedAt =
+    typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt)
+      ? record.updatedAt
+      : createdAt;
+  const dueDate =
+    typeof record.dueDate === 'string' && record.dueDate.trim() ? record.dueDate : undefined;
+  return {
+    id:
+      typeof record.id === 'string' && record.id.trim()
+        ? record.id
+        : createId(),
+    title,
+    body: typeof record.body === 'string' ? record.body : '',
+    importance: clamp(
+      typeof record.importance === 'number' ? record.importance : MIN_IMPORTANCE,
+      MIN_IMPORTANCE,
+      MAX_IMPORTANCE
+    ),
+    urgency: clamp(
+      typeof record.urgency === 'number' ? record.urgency : MIN_URGENCY,
+      MIN_URGENCY,
+      MAX_URGENCY
+    ),
+    dueDate,
+    dueAnchorAt:
+      typeof record.dueAnchorAt === 'number' && Number.isFinite(record.dueAnchorAt)
+        ? record.dueAnchorAt
+        : dueDate
+          ? updatedAt
+          : undefined,
+    color:
+      typeof record.color === 'string' && record.color.trim()
+        ? record.color
+        : colorPalette[0].key,
+    completed: Boolean(record.completed),
+    completedAt:
+      typeof record.completedAt === 'number' && Number.isFinite(record.completedAt)
+        ? record.completedAt
+        : undefined,
+    createdAt,
+    updatedAt,
+  };
+};
+
+const parseImportedNotes = (content: string): Note[] => {
+  const parsed: unknown = JSON.parse(content);
+  const noteList =
+    Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && Array.isArray((parsed as { notes?: unknown[] }).notes)
+        ? (parsed as { notes: unknown[] }).notes
+        : null;
+  if (!noteList) {
+    throw new Error('지원되지 않는 JSON 형식입니다.');
+  }
+  const normalized = noteList
+    .map((item) => normalizeImportedNote(item))
+    .filter((item): item is Note => item !== null);
+  if (normalized.length === 0) {
+    throw new Error('가져올 메모가 없습니다.');
+  }
+  return normalized;
+};
+
+const buildExportPayload = (notes: Note[]) =>
+  JSON.stringify(
+    {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      notes,
+    },
+    null,
+    2
+  );
+
 function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -137,8 +224,12 @@ function App() {
   const [hoverPlacements, setHoverPlacements] = useState<
     Record<string, { shift: number; place: 'top' | 'bottom' }>
   >({});
+  const [axisMode, setAxisMode] = useState<AxisMode>('swapped');
   const [listSort, setListSort] = useState('due');
+  const [hideCompletedInList, setHideCompletedInList] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewingCompletedId, setViewingCompletedId] = useState<string | null>(null);
+  const [transferStatus, setTransferStatus] = useState<TransferStatus>(null);
   const [editDraft, setEditDraft] = useState<Draft>(defaultDraft);
   const [confirmCompleteId, setConfirmCompleteId] = useState<string | null>(null);
   const [confirmCompletePos, setConfirmCompletePos] = useState<{ x: number; y: number } | null>(
@@ -148,6 +239,7 @@ function App() {
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
   const hoverRefs = useRef(new Map<string, HTMLDivElement>());
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -174,9 +266,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30000);
+    const timer = setInterval(() => setNow(Date.now()), 300000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!transferStatus) return undefined;
+    const timer = window.setTimeout(() => setTransferStatus(null), 10000);
+    return () => window.clearTimeout(timer);
+  }, [transferStatus]);
 
   useEffect(() => {
     if (typeof ResizeObserver === 'undefined') return undefined;
@@ -224,6 +322,38 @@ function App() {
   const editingNote = displayedNotes.find((note) => note.id === editingId) || null;
   const activeNotes = displayedNotes.filter((note) => !note.completed);
   const completedNotes = displayedNotes.filter((note) => note.completed);
+  const viewingCompletedNote =
+    completedNotes.find((note) => note.id === viewingCompletedId) || null;
+  const listNotes = hideCompletedInList
+    ? displayedNotes.filter((note) => !note.completed)
+    : displayedNotes;
+  const isAxisSwapped = axisMode === 'swapped';
+  const axisLabels = isAxisSwapped
+    ? {
+        top: 'Important ↑',
+        bottom: 'Less Important ↓',
+        left: 'Urgent ↑',
+        right: 'Not Urgent ↑',
+      }
+    : {
+        top: 'Urgent ↑',
+        bottom: 'Not Urgent ↓',
+        left: 'Important ↑',
+        right: 'Less Important ↑',
+      };
+  const quadrantLabels = isAxisSwapped
+    ? {
+        topLeft: 'Do Now',
+        topRight: 'Plan',
+        bottomLeft: 'Delegate',
+        bottomRight: 'Eliminate',
+      }
+    : {
+        topLeft: 'Do Now',
+        topRight: 'Delegate',
+        bottomLeft: 'Plan',
+        bottomRight: 'Eliminate',
+      };
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -319,8 +449,12 @@ function App() {
     const adjustedY = clientY - offsetY;
     const xRatio = clamp((adjustedX - rect.left) / rect.width, 0, 1);
     const yRatio = clamp((adjustedY - rect.top) / rect.height, 0, 1);
-    const importance = clamp((1 - xRatio) * 100, MIN_IMPORTANCE, MAX_IMPORTANCE);
-    const targetUrgency = clamp((1 - yRatio) * 100, MIN_URGENCY, MAX_URGENCY);
+    const importance = isAxisSwapped
+      ? clamp((1 - yRatio) * 100, MIN_IMPORTANCE, MAX_IMPORTANCE)
+      : clamp((1 - xRatio) * 100, MIN_IMPORTANCE, MAX_IMPORTANCE);
+    const targetUrgency = isAxisSwapped
+      ? clamp((1 - xRatio) * 100, MIN_URGENCY, MAX_URGENCY)
+      : clamp((1 - yRatio) * 100, MIN_URGENCY, MAX_URGENCY);
     const urgency = clamp(targetUrgency, MIN_URGENCY, MAX_URGENCY);
     updateNote(dragId, (note) => ({
       ...note,
@@ -391,6 +525,102 @@ function App() {
     });
   };
 
+  const defaultExportFileName = `quad-to-do-export-${new Date()
+    .toISOString()
+    .slice(0, 10)}.json`;
+
+  const mergeImportedNotes = async (importedNotes: Note[]) => {
+    const mergedMap = new Map(notes.map((note) => [note.id, note] as const));
+    importedNotes.forEach((note) => {
+      mergedMap.set(note.id, note);
+    });
+    const merged = Array.from(mergedMap.values());
+    await replaceNotes(merged);
+    setNotes(merged);
+    setTransferStatus({
+      kind: 'success',
+      text: `${importedNotes.length}개의 메모를 가져왔습니다.`,
+    });
+  };
+
+  const handleImportContent = async (content: string) => {
+    try {
+      const importedNotes = parseImportedNotes(content);
+      await mergeImportedNotes(importedNotes);
+    } catch (error) {
+      setTransferStatus({
+        kind: 'error',
+        text: error instanceof Error ? error.message : '메모를 가져오지 못했습니다.',
+      });
+    }
+  };
+
+  const handleExport = async () => {
+    const content = buildExportPayload(notes);
+    try {
+      if (window.electronAPI) {
+        const result = await window.electronAPI.saveJsonFile({
+          defaultPath: defaultExportFileName,
+          content,
+        });
+        if (result.canceled) return;
+        setTransferStatus({
+          kind: 'success',
+          text: `메모를 JSON으로 내보냈습니다.`,
+        });
+        return;
+      }
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = defaultExportFileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setTransferStatus({
+        kind: 'success',
+        text: '메모를 JSON으로 다운로드했습니다.',
+      });
+    } catch {
+      setTransferStatus({
+        kind: 'error',
+        text: '메모를 내보내지 못했습니다.',
+      });
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      if (window.electronAPI) {
+        const result = await window.electronAPI.openJsonFile();
+        if (result.canceled || !result.content) return;
+        await handleImportContent(result.content);
+        return;
+      }
+      importInputRef.current?.click();
+    } catch {
+      setTransferStatus({
+        kind: 'error',
+        text: '메모 파일을 열지 못했습니다.',
+      });
+    }
+  };
+
+  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const content = await file.text();
+      await handleImportContent(content);
+    } catch {
+      setTransferStatus({
+        kind: 'error',
+        text: '메모 파일을 읽지 못했습니다.',
+      });
+    }
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -398,12 +628,32 @@ function App() {
           <p className="app-eyebrow">Urgent x Important Memo Board</p>
           <h1>Quad-To-Do</h1>
         </div>
-        <div className="header-meta">
-          <span>Saved locally</span>
-          <span className="dot" />
-          <span>IndexedDB</span>
+        <div className="header-actions">
+          {transferStatus && (
+            <div className={`transfer-status ${transferStatus.kind}`}>{transferStatus.text}</div>
+          )}
+          <div className="header-meta">
+            <span>Saved locally</span>
+            <span className="dot" />
+            <span>IndexedDB</span>
+          </div>
+          <div className="header-tools">
+            <button type="button" className="toolbar-button secondary" onClick={handleExport}>
+              Export
+            </button>
+            <button type="button" className="toolbar-button secondary" onClick={handleImport}>
+              Import
+            </button>
+          </div>
         </div>
       </header>
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="visually-hidden"
+        onChange={handleImportFileChange}
+      />
 
       <main className="layout">
         <section className="panel">
@@ -478,8 +728,16 @@ function App() {
                 <option value="title">Title</option>
               </select>
             </div>
+            <label className="list-filter-toggle">
+              <input
+                type="checkbox"
+                checked={hideCompletedInList}
+                onChange={(event) => setHideCompletedInList(event.target.checked)}
+              />
+              <span>완료된 메모 숨김</span>
+            </label>
             <div className="list-body">
-              {[...displayedNotes]
+              {[...listNotes]
                 .sort((a, b) => {
                   switch (listSort) {
                     case 'importance':
@@ -530,8 +788,20 @@ function App() {
 
         <section className="board-section">
           <div className="board-header">
-            <h2>Quadrant Board</h2>
-            <p>카드를 드래그해서 중요도 / 긴급도를 조정하세요.</p>
+            <div>
+              <h2>Quadrant Board</h2>
+              <p>카드를 드래그해서 중요도 / 긴급도를 조정하세요.</p>
+            </div>
+            <button
+              type="button"
+              className="axis-toggle"
+              onClick={() =>
+                setAxisMode((prev) => (prev === 'standard' ? 'swapped' : 'standard'))
+              }
+              aria-pressed={isAxisSwapped}
+            >
+              {isAxisSwapped ? 'X: Urgency / Y: Importance' : 'X: Importance / Y: Urgency'}
+            </button>
           </div>
           <div
             ref={boardRef}
@@ -546,19 +816,23 @@ function App() {
               setDragOffset(null);
             }}
           >
-            <div className="axis-label axis-top">Urgent &uarr;</div>
-            <div className="axis-label axis-left">Important &larr;</div>
-            <div className="axis-label axis-right">Less Important &rarr;</div>
-            <div className="axis-label axis-bottom">Not Urgent &darr;</div>
-            <div className="quadrant-label q1">Do Now</div>
-            <div className="quadrant-label q2">Plan</div>
-            <div className="quadrant-label q3">Delegate</div>
-            <div className="quadrant-label q4">Eliminate</div>
+            <div className="axis-label axis-top">{axisLabels.top}</div>
+            <div className="axis-label axis-left">{axisLabels.left}</div>
+            <div className="axis-label axis-right">{axisLabels.right}</div>
+            <div className="axis-label axis-bottom">{axisLabels.bottom}</div>
+            <div className="quadrant-label q1">{quadrantLabels.topLeft}</div>
+            <div className="quadrant-label q2">{quadrantLabels.topRight}</div>
+            <div className="quadrant-label q3">{quadrantLabels.bottomLeft}</div>
+            <div className="quadrant-label q4">{quadrantLabels.bottomRight}</div>
 
             {activeNotes.map((note) => {
               const urgency = note.effectiveUrgency;
-              const x = 100 - clamp(note.importance, MIN_IMPORTANCE, MAX_IMPORTANCE);
-              const y = 100 - clamp(urgency, MIN_URGENCY, MAX_URGENCY);
+              const x = isAxisSwapped
+                ? 100 - clamp(urgency, MIN_URGENCY, MAX_URGENCY)
+                : 100 - clamp(note.importance, MIN_IMPORTANCE, MAX_IMPORTANCE);
+              const y = isAxisSwapped
+                ? 100 - clamp(note.importance, MIN_IMPORTANCE, MAX_IMPORTANCE)
+                : 100 - clamp(urgency, MIN_URGENCY, MAX_URGENCY);
               const dueLabel = getDueLabel(note, now);
               const size = cardSizes[note.id];
               const halfWidth = size ? size.w / 2 : 110;
@@ -647,6 +921,7 @@ function App() {
                   key={note.id}
                   className="completed-card"
                   style={{ background: baseCardColor(note.color) }}
+                  onClick={() => setViewingCompletedId(note.id)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     toggleComplete(note.id, false);
@@ -783,10 +1058,45 @@ function App() {
           </div>
         </div>
       )}
+      {viewingCompletedNote && (
+        <div className="modal-layer" onClick={() => setViewingCompletedId(null)}>
+          <div
+            className="modal completed-view-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2>Completed Memo</h2>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setViewingCompletedId(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="modal-body completed-view-body">
+              <div className="readonly-field">
+                <span className="readonly-label">Title</span>
+                <div className="readonly-value">{viewingCompletedNote.title}</div>
+              </div>
+              <div className="readonly-field">
+                <span className="readonly-label">Note</span>
+                <div className="readonly-value multiline">
+                  {viewingCompletedNote.body || 'No note'}
+                </div>
+              </div>
+              <div className="readonly-field">
+                <span className="readonly-label">Due Date</span>
+                <div className="readonly-value">
+                  {viewingCompletedNote.dueDate || 'No due date'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default App;
-
-
