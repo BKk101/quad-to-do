@@ -1,0 +1,12 @@
+{
+  "files": {
+    "main.css": "/quad-to-do/static/css/main.9ee25561.css",
+    "main.js": "/quad-to-do/static/js/main.a6709ade.js",
+    "static/js/206.f1bd0c04.chunk.js": "/quad-to-do/static/js/206.f1bd0c04.chunk.js",
+    "index.html": "/quad-to-do/index.html"
+  },
+  "entrypoints": [
+    "static/css/main.9ee25561.css",
+    "static/js/main.a6709ade.js"
+  ]
+}
