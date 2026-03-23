@@ -13,7 +13,7 @@ type Note = {
   updatedAt: number;
 };
 
-const DB_NAME = 'quad-to-do';
+const DB_NAME = 'quad-to-do-web-v1';
 const STORE_NAME = 'notes';
 const DB_VERSION = 1;
 
